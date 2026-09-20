@@ -19,12 +19,16 @@ import {
   resurfaceSnoozedNotifications,
   runRetentionCleanup,
   getClientStats,
+  getLatestDigest,
 } from './db/queries';
 import { sanitizePayload, isVerificationCode } from './redaction';
 import { classifyWithJev } from './classifiers/jev';
 import { classifyHeuristic } from './classifiers/heuristic';
 import { routeNotification } from './classifiers/router';
 import { generateScenarioNotifications, ScenarioType } from './simulator';
+import { generateDraftReply } from './llm/drafts';
+import { queryNotificationsAssistant } from './llm/assistant';
+import { runDigestPipeline, DigestWorkflow } from './workflows/digest';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -553,6 +557,103 @@ app.post('/v1/simulate', async (c) => {
     count: ingested.length,
     notifications: ingested,
   });
+});
+
+// -------------------------------------------------------------
+// LLM Draft Reply Endpoint (Phase 4)
+// -------------------------------------------------------------
+app.post('/v1/notifications/:id/draft-reply', async (c) => {
+  const clientId = c.get('clientId');
+  const id = c.req.param('id');
+  let body: { tone?: 'brief' | 'friendly' | 'formal' };
+
+  try {
+    body = await c.req.json();
+  } catch {
+    body = { tone: 'brief' };
+  }
+
+  const tone = body.tone && ['brief', 'friendly', 'formal'].includes(body.tone) ? body.tone : 'brief';
+
+  const notification = await getNotificationById(c.env.DB, clientId, id);
+  if (!notification) {
+    return c.json({ error: 'Notification not found' }, 404);
+  }
+
+  const client = await getOrCreateClient(c.env.DB, clientId);
+  const draft = await generateDraftReply(c.env, client.settings, notification, tone);
+
+  return c.json(draft);
+});
+
+// -------------------------------------------------------------
+// Ask LLM About Notifications / Conversational Q&A (Phase 4)
+// -------------------------------------------------------------
+app.post('/v1/notifications/query', async (c) => {
+  const clientId = c.get('clientId');
+  let body: { query: string; lane?: string; limit?: number };
+
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON payload' }, 400);
+  }
+
+  if (!body.query || typeof body.query !== 'string' || body.query.trim() === '') {
+    return c.json({ error: "'query' must be a non-empty string." }, 400);
+  }
+
+  const limit = Math.min(Math.max(body.limit || 30, 1), 50);
+  const { notifications } = await getNotifications(c.env.DB, clientId, {
+    lane: body.lane,
+    limit,
+  });
+
+  const client = await getOrCreateClient(c.env.DB, clientId);
+  const result = await queryNotificationsAssistant(c.env, client.settings, body.query.trim(), notifications);
+
+  return c.json({
+    query: body.query.trim(),
+    answer: result.answer,
+    model: result.model,
+    latency_ms: result.latency_ms,
+    items_analyzed: result.items_analyzed,
+  });
+});
+
+// -------------------------------------------------------------
+// Digest Workflow & Endpoints (Phase 4)
+// -------------------------------------------------------------
+app.post('/v1/digest/run', async (c) => {
+  const clientId = c.get('clientId');
+  const client = await getOrCreateClient(c.env.DB, clientId);
+
+  // If Cloudflare Workflows binding is active, dispatch workflow event
+  if (c.env.DIGEST_WORKFLOW && typeof (c.env.DIGEST_WORKFLOW as any).create === 'function') {
+    try {
+      const instance = await (c.env.DIGEST_WORKFLOW as any).create({
+        params: { clientId, settings: client.settings },
+      });
+      return c.json({ success: true, workflow_instance_id: instance.id, message: 'Digest workflow initiated' });
+    } catch (err: any) {
+      console.warn(`Workflows binding failed (${err.message}). Running pipeline directly.`);
+    }
+  }
+
+  // Direct durable execution fallback
+  const digest = await runDigestPipeline(c.env, client.settings, clientId);
+  return c.json({ success: true, digest });
+});
+
+app.get('/v1/digest/latest', async (c) => {
+  const clientId = c.get('clientId');
+  const digest = await getLatestDigest(c.env.DB, clientId);
+
+  if (!digest) {
+    return c.json({ message: 'No completed digest available yet.', digest: null });
+  }
+
+  return c.json({ digest });
 });
 
 // -------------------------------------------------------------

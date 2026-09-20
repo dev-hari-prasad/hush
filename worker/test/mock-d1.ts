@@ -159,6 +159,15 @@ class MockD1PreparedStatement {
       return { results: allClients as T[] };
     }
 
+    // SELECT * FROM digests WHERE client_id = ? AND status = ?
+    if (/SELECT .* FROM digests WHERE client_id = \? AND status = \?/i.test(q)) {
+      const [clientId, status] = this.bindings;
+      const list = Array.from(this.tables.digests.values())
+        .filter((d) => d.client_id === clientId && d.status === status)
+        .sort((a, b) => b.created_at.localeCompare(a.created_at));
+      return { results: list as T[] };
+    }
+
     return { results: [] };
   }
 
@@ -273,6 +282,43 @@ class MockD1PreparedStatement {
       };
       this.tables.notifications.set(record.id, record);
       return { meta: { changes: 1 } };
+    }
+
+    // INSERT INTO drafts
+    if (/INSERT INTO drafts/i.test(q)) {
+      const [id, notification_id, tone, text, model, latency_ms, created_at] = this.bindings;
+      this.tables.drafts.set(id, { id, notification_id, tone, text, model, latency_ms, created_at });
+      return { meta: { changes: 1 } };
+    }
+
+    // INSERT INTO digests
+    if (/INSERT INTO digests/i.test(q)) {
+      const [id, client_id, created_at, status] = this.bindings;
+      this.tables.digests.set(id, { id, client_id, created_at, status: status || 'pending' });
+      return { meta: { changes: 1 } };
+    }
+
+    // UPDATE digests
+    if (/UPDATE digests/i.test(q)) {
+      if (/SET status = 'completed'/i.test(q)) {
+        const [item_count, summary_json, period_start, period_end, id] = this.bindings;
+        const digest = this.tables.digests.get(id) || { id };
+        this.tables.digests.set(id, {
+          ...digest,
+          status: 'completed',
+          item_count,
+          summary_json,
+          period_start,
+          period_end,
+        });
+        return { meta: { changes: 1 } };
+      }
+      if (/SET status = 'failed'/i.test(q)) {
+        const [id] = this.bindings;
+        const digest = this.tables.digests.get(id) || { id };
+        this.tables.digests.set(id, { ...digest, status: 'failed' });
+        return { meta: { changes: 1 } };
+      }
     }
 
     // UPDATE notifications SET status = ?, snooze_until = ?, lane = ?, user_lane = ?, lane_reason = ? WHERE id = ? AND client_id = ?

@@ -478,4 +478,18 @@ export async function getClientStats(
   };
 }
 
+export async function getLatestDigest(
+  db: D1Database,
+  clientId: string
+): Promise<DigestRecord | null> {
+  const row = await db.prepare(
+    'SELECT * FROM digests WHERE client_id = ? AND status = ? ORDER BY created_at DESC LIMIT 1'
+  )
+    .bind(clientId, 'completed')
+    .first<DigestRecord>();
+
+  return row || null;
+}
+
+
 
