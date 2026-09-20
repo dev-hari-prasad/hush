@@ -160,3 +160,87 @@ export async function checkRateLimit(db: D1Database, clientId: string, maxPerHou
 
   return { allowed: true, remaining: maxPerHour - (currentCount + 1) };
 }
+
+export async function computeDedupeHash(
+  clientId: string,
+  domain: string,
+  sender: string | undefined | null,
+  title: string,
+  body: string | undefined | null
+): Promise<string> {
+  const norm = `${clientId}|${domain.toLowerCase()}|${(sender || '').toLowerCase()}|${title.trim().toLowerCase()}|${(body || '').trim().slice(0, 100).toLowerCase()}`;
+  const msgUint8 = new TextEncoder().encode(norm);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+export async function checkDuplicateNotification(
+  db: D1Database,
+  clientId: string,
+  dedupeHash: string,
+  windowSeconds = 300
+): Promise<NotificationRecord | null> {
+  const cutoff = new Date(Date.now() - windowSeconds * 1000).toISOString();
+
+  const match = await db.prepare(
+    'SELECT * FROM notifications WHERE client_id = ? AND dedupe_hash = ? AND received_at >= ? LIMIT 1'
+  )
+    .bind(clientId, dedupeHash, cutoff)
+    .first<NotificationRecord>();
+
+  return match || null;
+}
+
+export async function insertNotificationRecord(
+  db: D1Database,
+  record: NotificationRecord
+): Promise<void> {
+  await db.prepare(
+    `INSERT INTO notifications (
+      id, client_id, received_at, source_domain, sender, title, body,
+      dedupe_hash, classifier, lane, lane_reason, urgency,
+      p_now, p_later, p_mute, p_time_sensitive, p_needs_reply, p_from_person,
+      p_promotional, p_suspicious, answers_json, uncertain, suspicious,
+      classify_ms, status, snooze_until, user_lane, created_at
+    ) VALUES (
+      ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?
+    )`
+  )
+    .bind(
+      record.id,
+      record.client_id,
+      record.received_at,
+      record.source_domain,
+      record.sender,
+      record.title,
+      record.body,
+      record.dedupe_hash,
+      record.classifier,
+      record.lane,
+      record.lane_reason,
+      record.urgency,
+      record.p_now,
+      record.p_later,
+      record.p_mute,
+      record.p_time_sensitive,
+      record.p_needs_reply,
+      record.p_from_person,
+      record.p_promotional,
+      record.p_suspicious,
+      record.answers_json,
+      record.uncertain,
+      record.suspicious,
+      record.classify_ms,
+      record.status,
+      record.snooze_until,
+      record.user_lane,
+      record.created_at
+    )
+    .run();
+}
+

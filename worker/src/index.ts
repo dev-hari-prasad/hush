@@ -1,7 +1,7 @@
 // worker/src/index.ts
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { Env, ClientSettings } from './types';
+import { Env, ClientSettings, NotificationPayload, NotificationRecord } from './types';
 import {
   getOrCreateClient,
   updateClientSettings,
@@ -10,7 +10,14 @@ import {
   updateClientRule,
   deleteClientRule,
   checkRateLimit,
+  computeDedupeHash,
+  checkDuplicateNotification,
+  insertNotificationRecord,
 } from './db/queries';
+import { sanitizePayload, isVerificationCode } from './redaction';
+import { classifyWithJev } from './classifiers/jev';
+import { classifyHeuristic } from './classifiers/heuristic';
+import { routeNotification } from './classifiers/router';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -194,7 +201,208 @@ app.delete('/v1/rules/:id', async (c) => {
 });
 
 // -------------------------------------------------------------
+// Notification Ingestion Endpoints (Phase 2)
+// -------------------------------------------------------------
+
+async function processNotificationIngest(
+  c: any,
+  clientId: string,
+  payload: NotificationPayload,
+  clientSettings: any,
+  rules: any[]
+) {
+  if (!payload || !payload.title || typeof payload.title !== 'string') {
+    throw new Error("Invalid payload: 'title' is required and must be a string.");
+  }
+  if (!payload.source || !payload.source.domain || typeof payload.source.domain !== 'string') {
+    throw new Error("Invalid payload: 'source.domain' is required and must be a string.");
+  }
+
+  const rawTitle = payload.title.slice(0, 200);
+  const rawBody = (payload.body || '').slice(0, 1000);
+  const domain = payload.source.domain;
+  const sender = payload.sender;
+  const receivedAt = payload.received_at || new Date().toISOString();
+
+  // PII Redaction
+  const shouldRedact = clientSettings.redact !== false;
+  const { title: sanitizedTitle, body: sanitizedBody, isOtp } = sanitizePayload(rawTitle, rawBody, shouldRedact);
+
+  // Deduplication check
+  const dedupeHash = await computeDedupeHash(clientId, domain, sender, sanitizedTitle, sanitizedBody);
+  const duplicate = await checkDuplicateNotification(c.env.DB, clientId, dedupeHash, 300);
+
+  if (duplicate) {
+    return {
+      id: duplicate.id,
+      lane: duplicate.lane,
+      reason: `deduplicated:${duplicate.lane_reason}`,
+      urgency: duplicate.urgency ?? 3,
+      confidence: duplicate.p_now ?? 0.8,
+      uncertain: Boolean(duplicate.uncertain),
+      suspicious: Boolean(duplicate.suspicious),
+      classifier: duplicate.classifier,
+      classify_ms: duplicate.classify_ms ?? 0,
+      deduplicated: true,
+    };
+  }
+
+  // Determine focus mode state
+  const focusMode = typeof payload.focus_mode === 'boolean' ? payload.focus_mode : clientSettings.focus_mode;
+
+  // Run Classifier
+  const jevMode = c.env.JEV_MODE || 'heuristic';
+  const jevApiKey = clientSettings.jev_api_key || c.env.JEV_API_KEY;
+  const jevEndpoint = clientSettings.jev_endpoint || 'https://api.typesafe.ai/v1/systemone';
+
+  let rawClassification;
+  if (jevMode === 'heuristic' || !jevApiKey) {
+    rawClassification = classifyHeuristic(
+      {
+        domain,
+        sender,
+        title: sanitizedTitle,
+        body: sanitizedBody,
+        focusMode,
+      },
+      'heuristic'
+    );
+  } else {
+    rawClassification = await classifyWithJev({
+      endpoint: jevEndpoint,
+      apiKey: jevApiKey,
+      domain,
+      sender,
+      title: sanitizedTitle,
+      body: sanitizedBody,
+      userPriorities: clientSettings.priorities_text,
+      focusMode,
+      localTime: receivedAt,
+    });
+  }
+
+  // Route Decision through deterministic rules and thresholds
+  const decision = routeNotification({
+    domain,
+    sender,
+    title: sanitizedTitle,
+    body: sanitizedBody,
+    focusMode,
+    settings: clientSettings,
+    rules,
+    rawClassification,
+  });
+
+  // Critical privacy rule: verification code body MUST NEVER be stored in the database
+  const bodyToStore = isOtp || isVerificationCode(`${sanitizedTitle} ${sanitizedBody}`) ? null : sanitizedBody;
+
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  const record: NotificationRecord = {
+    id,
+    client_id: clientId,
+    received_at: receivedAt,
+    source_domain: domain,
+    sender: sender || null,
+    title: sanitizedTitle,
+    body: bodyToStore,
+    dedupe_hash: dedupeHash,
+    classifier: decision.classifier,
+    lane: decision.lane,
+    lane_reason: decision.lane_reason,
+    urgency: decision.urgency,
+    p_now: decision.p_now,
+    p_later: decision.p_later,
+    p_mute: decision.p_mute,
+    p_time_sensitive: decision.p_time_sensitive,
+    p_needs_reply: decision.p_needs_reply,
+    p_from_person: decision.p_from_person,
+    p_promotional: decision.p_promotional,
+    p_suspicious: decision.p_suspicious,
+    answers_json: decision.answers ? JSON.stringify(decision.answers) : null,
+    uncertain: decision.uncertain ? 1 : 0,
+    suspicious: decision.suspicious ? 1 : 0,
+    classify_ms: decision.classify_ms,
+    status: 'open',
+    snooze_until: null,
+    user_lane: null,
+    created_at: now,
+  };
+
+  await insertNotificationRecord(c.env.DB, record);
+
+  return {
+    id,
+    lane: decision.lane,
+    reason: decision.lane_reason,
+    urgency: decision.urgency,
+    confidence: decision.confidence,
+    uncertain: decision.uncertain,
+    suspicious: decision.suspicious,
+    classifier: decision.classifier,
+    classify_ms: decision.classify_ms,
+  };
+}
+
+app.post('/v1/notifications', async (c) => {
+  const clientId = c.get('clientId');
+  let payload: NotificationPayload;
+
+  try {
+    payload = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON payload' }, 400);
+  }
+
+  const client = await getOrCreateClient(c.env.DB, clientId);
+  const rules = await getClientRules(c.env.DB, clientId);
+
+  try {
+    const result = await processNotificationIngest(c, clientId, payload, client.settings, rules);
+    return c.json(result, 201);
+  } catch (err: any) {
+    return c.json({ error: err.message }, 400);
+  }
+});
+
+app.post('/v1/notifications/batch', async (c) => {
+  const clientId = c.get('clientId');
+  let body: { notifications: NotificationPayload[] };
+
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON payload' }, 400);
+  }
+
+  if (!body.notifications || !Array.isArray(body.notifications)) {
+    return c.json({ error: "'notifications' must be an array" }, 400);
+  }
+
+  if (body.notifications.length > 20) {
+    return c.json({ error: 'Maximum batch size is 20 notifications' }, 400);
+  }
+
+  const client = await getOrCreateClient(c.env.DB, clientId);
+  const rules = await getClientRules(c.env.DB, clientId);
+
+  const results = [];
+  for (const item of body.notifications) {
+    try {
+      const res = await processNotificationIngest(c, clientId, item, client.settings, rules);
+      results.push(res);
+    } catch (err: any) {
+      results.push({ error: err.message });
+    }
+  }
+
+  return c.json({ results });
+});
+
+// -------------------------------------------------------------
 // Data Wipe Endpoint
+
 // -------------------------------------------------------------
 app.delete('/v1/data', async (c) => {
   const clientId = c.get('clientId');

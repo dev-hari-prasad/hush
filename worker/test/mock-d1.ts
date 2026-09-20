@@ -94,6 +94,22 @@ class MockD1PreparedStatement {
       return { results: entry ? [entry as T] : [] };
     }
 
+    // SELECT * FROM notifications WHERE client_id = ? AND dedupe_hash = ? AND received_at >= ?
+    if (/SELECT .* FROM notifications WHERE client_id = \? AND dedupe_hash = \? AND received_at >= \?/i.test(q)) {
+      const [clientId, dedupeHash, cutoff] = this.bindings;
+      const match = Array.from(this.tables.notifications.values()).find(
+        (n) => n.client_id === clientId && n.dedupe_hash === dedupeHash && n.received_at >= cutoff
+      );
+      return { results: match ? [match as T] : [] };
+    }
+
+    // SELECT * FROM notifications WHERE client_id = ?
+    if (/SELECT .* FROM notifications WHERE client_id = \?/i.test(q)) {
+      const clientId = this.bindings[0];
+      const items = Array.from(this.tables.notifications.values()).filter((n) => n.client_id === clientId);
+      return { results: items as T[] };
+    }
+
     return { results: [] };
   }
 
@@ -174,6 +190,42 @@ class MockD1PreparedStatement {
       return { meta: { changes: 1 } };
     }
 
+    // INSERT INTO notifications
+    if (/INSERT INTO notifications/i.test(q)) {
+      const record: any = {
+        id: this.bindings[0],
+        client_id: this.bindings[1],
+        received_at: this.bindings[2],
+        source_domain: this.bindings[3],
+        sender: this.bindings[4],
+        title: this.bindings[5],
+        body: this.bindings[6],
+        dedupe_hash: this.bindings[7],
+        classifier: this.bindings[8],
+        lane: this.bindings[9],
+        lane_reason: this.bindings[10],
+        urgency: this.bindings[11],
+        p_now: this.bindings[12],
+        p_later: this.bindings[13],
+        p_mute: this.bindings[14],
+        p_time_sensitive: this.bindings[15],
+        p_needs_reply: this.bindings[16],
+        p_from_person: this.bindings[17],
+        p_promotional: this.bindings[18],
+        p_suspicious: this.bindings[19],
+        answers_json: this.bindings[20],
+        uncertain: this.bindings[21],
+        suspicious: this.bindings[22],
+        classify_ms: this.bindings[23],
+        status: this.bindings[24],
+        snooze_until: this.bindings[25],
+        user_lane: this.bindings[26],
+        created_at: this.bindings[27],
+      };
+      this.tables.notifications.set(record.id, record);
+      return { meta: { changes: 1 } };
+    }
+
     // DELETE FROM clients WHERE id = ?
     if (/DELETE FROM clients WHERE id = \?/i.test(q)) {
       const [clientId] = this.bindings;
@@ -181,6 +233,10 @@ class MockD1PreparedStatement {
       // cascade rules
       for (const [rid, rule] of this.tables.rules.entries()) {
         if (rule.client_id === clientId) this.tables.rules.delete(rid);
+      }
+      // cascade notifications
+      for (const [nid, notif] of this.tables.notifications.entries()) {
+        if (notif.client_id === clientId) this.tables.notifications.delete(nid);
       }
       return { meta: { changes: had ? 1 : 0 } };
     }
