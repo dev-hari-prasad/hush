@@ -1,0 +1,38 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "hush",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-02-24",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "hush-db",
+      "database_id": "local-hush-db",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "ai": {
+    "binding": "AI"
+  },
+  "workflows": [
+    {
+      "name": "digest-workflow",
+      "binding": "DIGEST_WORKFLOW",
+      "class_name": "DigestWorkflow"
+    }
+  ],
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+  "assets": {
+    "directory": "../web",
+    "binding": "ASSETS",
+    "html_handling": "auto-trailing-slash"
+  },
+  "vars": {
+    "JEV_MODE": "heuristic",
+    "NOW_THRESHOLD": "0.6",
+    "MUTE_THRESHOLD": "0.8"
+  }
+}
