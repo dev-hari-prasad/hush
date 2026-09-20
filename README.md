@@ -1,6 +1,6 @@
-# Hush: Notification Manager for Chrome
+# Hush: AI Notification Center for Chrome
 
-> **Intelligent Notification Triage Agent & Ambient Firewall for the Web**  
+> **Intelligent AI Notification Center & Ambient Firewall for the Web**  
 > Sits seamlessly between web notifications and the user. Built with a Chrome Manifest V3 extension, TypeSafe AI Jev ("System One"), Cloudflare Workers, D1 SQL, and Workers AI.
 
 ---
@@ -118,7 +118,7 @@ Hush treats all incoming notification payloads as untrusted user input:
 ### Conversational Q&A System Prompt (`POST /v1/notifications/query`)
 
 ```text
-You are Hush Assistant, a secure and concise notification triage companion.
+You are Hush Assistant, a secure and concise AI Notification Center companion.
 Your duty is to answer the user's questions about their web notifications accurately based ONLY on the provided notification log.
 
 CRITICAL SECURITY AND PRIVACY RULES:

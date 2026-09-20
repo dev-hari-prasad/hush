@@ -2,16 +2,16 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Hush - Settings & Preferences</title>
+  <title>Hush: AI Notification Center Settings</title>
   <link rel="stylesheet" href="../popup/popup.css">
   <style>
     body {
       width: 100%;
-      max-width: 720px;
+      max-width: 760px;
       margin: 0 auto;
       min-height: 100vh;
       max-height: none;
-      padding: 24px 16px;
+      padding: 32px 20px;
     }
   </style>
 </head>
@@ -19,20 +19,20 @@
   <header class="app-header" style="border-radius: var(--radius-md); margin-bottom: 20px;">
     <div class="brand">
       <svg class="brand-icon" viewBox="0 0 128 128" fill="none">
-        <rect width="128" height="128" rx="28" fill="#14161d"/>
+        <rect width="128" height="128" rx="28" fill="#11131a"/>
         <path d="M64 26 C50 26 40 37 40 52 L40 70 L32 78 L32 84 L96 84 L96 78 L88 70 L88 52 C88 37 78 26 64 26 Z" fill="#f6821f"/>
         <path d="M54 88 C55 94 59 98 64 98 C69 98 73 94 74 88 Z" fill="#fa6400"/>
         <circle cx="86" cy="36" r="7" fill="#22c55e"/>
       </svg>
       <span class="brand-title">Hush</span>
-      <span class="brand-badge">Settings & Triage Policies</span>
+      <span class="brand-badge">AI Notification Center Settings</span>
     </div>
   </header>
 
   <div class="settings-section" style="margin-bottom: 16px;">
-    <h4 class="section-title">Privacy & Consent</h4>
+    <h4 class="section-title">Privacy & Notification Guard</h4>
     <p style="font-size: 12px; color: var(--text-muted); line-height: 1.5;">
-      Hush intercepts web notifications on allowlisted sites, redacts sensitive PII (emails, phone numbers, long digit sequences, URL queries) directly on your machine, and routes them through TypeSafe AI's Jev model or your local deterministic heuristics. Verification codes (OTP) are instantly routed to <strong>Now</strong> and are never stored.
+      Hush intercepts web notifications on allowlisted sites, redacts sensitive PII (emails, phone numbers, long digit sequences, URL queries) directly on your machine, and routes them through TypeSafe AI's Jev model or embedded deterministic heuristics. Verification codes (OTP) are instantly routed to <strong>Now</strong> and are never stored in the database.
     </p>
   </div>
 
@@ -61,7 +61,7 @@
   </div>
 
   <div class="settings-section" style="margin-bottom: 16px;">
-    <h4 class="section-title">Triage Thresholds</h4>
+    <h4 class="section-title">Routing & Classification Thresholds</h4>
     <div class="form-group">
       <label class="form-label">Now Interrupt Threshold: <span id="val-now-threshold" style="color: var(--accent-orange);">0.6</span></label>
       <input type="range" id="opt-now-threshold" min="0.1" max="0.9" step="0.05" value="0.6" style="accent-color: var(--accent-orange);">

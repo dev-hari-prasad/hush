@@ -655,7 +655,7 @@ function setupSettingsHandlers() {
   });
 
   btnWipeData?.addEventListener('click', async () => {
-    if (!confirm('Are you sure you want to delete all triaged notifications and rules? This cannot be undone.')) return;
+    if (!confirm('Are you sure you want to delete all stored notifications and rules? This cannot be undone.')) return;
     try {
       await fetch(`${currentWorkerUrl}/v1/data`, {
         method: 'DELETE',

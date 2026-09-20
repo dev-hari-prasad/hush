@@ -2,18 +2,21 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Hush - Notification Interception Testbed</title>
+  <title>Hush: AI Notification Center Testbed</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     body {
-      background: #0c0d10;
+      background: #090a0f;
       color: #f8fafc;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       max-width: 760px;
       margin: 40px auto;
       padding: 0 20px;
       line-height: 1.5;
     }
-    h1 { color: #f6821f; font-size: 24px; margin-bottom: 8px; }
+    h1 { color: #f6821f; font-size: 24px; font-weight: 800; margin-bottom: 8px; }
     p { color: #94a3b8; font-size: 14px; margin-bottom: 24px; }
     .btn-grid {
       display: grid;
@@ -22,19 +25,20 @@
       margin-bottom: 24px;
     }
     button {
-      background: #14161d;
-      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: #11131a;
+      border: 1px solid rgba(255, 255, 255, 0.08);
       color: #ffffff;
       padding: 12px 14px;
       border-radius: 8px;
+      font-family: inherit;
       font-size: 13px;
-      font-weight: 500;
+      font-weight: 600;
       cursor: pointer;
       text-align: left;
       transition: all 0.15s ease;
     }
     button:hover {
-      background: #1c1f2a;
+      background: #181a24;
       border-color: #f6821f;
     }
     .btn-primary {
@@ -42,13 +46,13 @@
       color: #fff;
       border-color: #f6821f;
       text-align: center;
-      font-weight: 600;
+      font-weight: 700;
     }
     .btn-primary:hover {
       background: #fa6400;
     }
     .console-box {
-      background: #14161d;
+      background: #11131a;
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 8px;
       padding: 14px;
@@ -72,13 +76,13 @@
       color: #f6821f;
       padding: 2px 8px;
       border-radius: 12px;
-      font-weight: 600;
+      font-weight: 700;
     }
   </style>
 </head>
 <body>
-  <h1>Hush Notification Interception Testbed</h1>
-  <p>Trigger varied web notifications using real <code>new Notification()</code> calls to test the Hush MAIN-world hook, isolated bridge, and triage routing.</p>
+  <h1>Hush: AI Notification Center Testbed</h1>
+  <p>Trigger varied web notifications using real <code>new Notification()</code> calls to test the Hush MAIN-world hook, isolated bridge, and AI routing.</p>
 
   <div class="status-bar">
     <span>Notification Permission: <strong id="perm-status" class="badge">checking...</strong></span>

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hush: AI Notification Triage</title>
+  <title>Hush: AI Notification Center</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
@@ -11,13 +11,13 @@
   <header class="app-header">
     <div class="brand">
       <svg class="brand-icon" viewBox="0 0 128 128" fill="none">
-        <rect width="128" height="128" rx="28" fill="#14161d"/>
+        <rect width="128" height="128" rx="28" fill="#11131a"/>
         <path d="M64 26 C50 26 40 37 40 52 L40 70 L32 78 L32 84 L96 84 L96 78 L88 70 L88 52 C88 37 78 26 64 26 Z" fill="#f6821f"/>
         <path d="M54 88 C55 94 59 98 64 98 C69 98 73 94 74 88 Z" fill="#fa6400"/>
         <circle cx="86" cy="36" r="7" fill="#22c55e"/>
       </svg>
       <span class="brand-title">Hush</span>
-      <span class="brand-badge">AI Triage</span>
+      <span class="brand-badge">AI Notification Center</span>
     </div>
     <div class="header-actions">
       <div id="connection-status" class="status-dot" title="Worker Status: Checking..."></div>
@@ -79,7 +79,7 @@
       <div class="chat-container">
         <div id="chat-history" class="chat-history">
           <div class="chat-bubble assistant">
-            Hello! I am your Hush Assistant. Ask me anything about your incoming notifications (e.g. <em>"Did any deployment alerts fire?"</em> or <em>"Summarize messages from Alex"</em>).
+            Hello! I am your Hush AI Notification Center companion. Ask me anything about your incoming notifications (e.g. <em>"Did any deployment alerts fire?"</em> or <em>"Summarize messages from Alex"</em>).
           </div>
         </div>
         <form id="chat-form" class="chat-input-bar">
@@ -91,9 +91,21 @@
 
     <!-- DIGEST View -->
     <div id="pane-digest" class="tab-pane">
+      <div class="digest-featured-card">
+        <div class="digest-featured-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+          </svg>
+          Executive Notification Briefing
+        </div>
+        <div class="digest-featured-desc">
+          Batch summarize ambient notifications, catch up on PRs & threads, and prepare action drafts with Workers AI.
+        </div>
+      </div>
+
       <div class="digest-box">
         <div style="display: flex; justify-content: space-between; align-items: center;">
-          <h3 class="digest-title">Executive Notification Briefing</h3>
+          <h3 class="digest-title">Latest Digest</h3>
           <button id="btn-run-digest" class="btn-action btn-primary">⚡ Generate</button>
         </div>
         <div id="digest-content">

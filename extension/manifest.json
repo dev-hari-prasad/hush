@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Hush: AI Notification Triage",
+  "name": "Hush: AI Notification Center",
   "version": "1.0.0",
-  "description": "Intelligent, privacy-first notification manager and AI triage agent between web notifications and you.",
+  "description": "Intelligent, privacy-first AI Notification Center for Chrome.",
   "permissions": [
     "storage",
     "sidePanel",
@@ -17,7 +17,7 @@
   ],
   "action": {
     "default_popup": "popup/popup.html",
-    "default_title": "Hush AI Notification Triage",
+    "default_title": "Hush AI Notification Center",
     "default_icon": {
       "16": "assets/icon-16.png",
       "48": "assets/icon-48.png",
@@ -43,7 +43,8 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "scripts/hook.js"
+        "scripts/hook.js",
+        "assets/fonts/*"
       ],
       "matches": [
         "<all_urls>"
