@@ -244,3 +244,238 @@ export async function insertNotificationRecord(
     .run();
 }
 
+export async function getNotifications(
+  db: D1Database,
+  clientId: string,
+  options: {
+    lane?: string;
+    status?: string;
+    limit?: number;
+    before?: string;
+  }
+): Promise<{ notifications: NotificationRecord[]; has_more: boolean }> {
+  const limit = Math.min(Math.max(Number(options.limit) || 50, 1), 100);
+  const conditions = ['client_id = ?'];
+  const bindings: any[] = [clientId];
+
+  if (options.lane) {
+    conditions.push('lane = ?');
+    bindings.push(options.lane);
+  }
+
+  if (options.status) {
+    conditions.push('status = ?');
+    bindings.push(options.status);
+  }
+
+  if (options.before) {
+    conditions.push('received_at < ?');
+    bindings.push(options.before);
+  }
+
+  const whereClause = conditions.join(' AND ');
+  // Fetch limit + 1 to detect has_more
+  const query = `SELECT * FROM notifications WHERE ${whereClause} ORDER BY received_at DESC LIMIT ?`;
+  bindings.push(limit + 1);
+
+  const stmt = db.prepare(query);
+  const result = await stmt.bind(...bindings).all<NotificationRecord>();
+  const rows = result.results || [];
+
+  const has_more = rows.length > limit;
+  const notifications = has_more ? rows.slice(0, limit) : rows;
+
+  return { notifications, has_more };
+}
+
+export async function getNotificationById(
+  db: D1Database,
+  clientId: string,
+  id: string
+): Promise<NotificationRecord | null> {
+  const notif = await db.prepare('SELECT * FROM notifications WHERE id = ? AND client_id = ?')
+    .bind(id, clientId)
+    .first<NotificationRecord>();
+
+  return notif || null;
+}
+
+export async function updateNotificationAction(
+  db: D1Database,
+  clientId: string,
+  id: string,
+  updates: {
+    status?: 'open' | 'done' | 'snoozed';
+    snooze_until?: string | null;
+    lane?: 'now' | 'later' | 'mute';
+    user_lane?: 'now' | 'later' | 'mute';
+    lane_reason?: string;
+  }
+): Promise<NotificationRecord | null> {
+  const existing = await getNotificationById(db, clientId, id);
+  if (!existing) return null;
+
+  const status = updates.status ?? existing.status;
+  const snooze_until = updates.snooze_until !== undefined ? updates.snooze_until : existing.snooze_until;
+  const lane = updates.lane ?? existing.lane;
+  const user_lane = updates.user_lane !== undefined ? updates.user_lane : existing.user_lane;
+  const lane_reason = updates.lane_reason ?? existing.lane_reason;
+
+  await db.prepare(
+    `UPDATE notifications SET
+      status = ?,
+      snooze_until = ?,
+      lane = ?,
+      user_lane = ?,
+      lane_reason = ?
+    WHERE id = ? AND client_id = ?`
+  )
+    .bind(status, snooze_until, lane, user_lane, lane_reason, id, clientId)
+    .run();
+
+  return {
+    ...existing,
+    status,
+    snooze_until,
+    lane,
+    user_lane,
+    lane_reason,
+  };
+}
+
+export async function resurfaceSnoozedNotifications(db: D1Database): Promise<number> {
+  const now = new Date().toISOString();
+  const res = await db.prepare(
+    `UPDATE notifications
+     SET status = 'open',
+         lane = 'now',
+         lane_reason = 'snooze_resurfaced',
+         snooze_until = NULL
+     WHERE status = 'snoozed' AND snooze_until IS NOT NULL AND snooze_until <= ?`
+  )
+    .bind(now)
+    .run();
+
+  return res.meta?.changes ?? 0;
+}
+
+export async function runRetentionCleanup(db: D1Database): Promise<{ bodiesNullified: number; rowsDeleted: number }> {
+  const now = Date.now();
+  const thirtyDaysAgo = new Date(now - 30 * 86400 * 1000).toISOString();
+
+  // Delete notifications older than 30 days
+  const delRes = await db.prepare('DELETE FROM notifications WHERE received_at < ?')
+    .bind(thirtyDaysAgo)
+    .run();
+  const rowsDeleted = delRes.meta?.changes ?? 0;
+
+  // For each client, check retention_days and nullify bodies
+  const clients = await db.prepare('SELECT id, settings_json FROM clients').all<{ id: string; settings_json: string }>();
+  let bodiesNullified = 0;
+
+  for (const client of (clients.results || [])) {
+    let retentionDays = 7;
+    try {
+      const parsed = JSON.parse(client.settings_json || '{}');
+      if (typeof parsed.retention_days === 'number' && parsed.retention_days > 0) {
+        retentionDays = parsed.retention_days;
+      }
+    } catch {
+      retentionDays = 7;
+    }
+
+    const retentionCutoff = new Date(now - retentionDays * 86400 * 1000).toISOString();
+    const nullRes = await db.prepare(
+      'UPDATE notifications SET body = NULL WHERE client_id = ? AND received_at < ? AND body IS NOT NULL'
+    )
+      .bind(client.id, retentionCutoff)
+      .run();
+
+    bodiesNullified += nullRes.meta?.changes ?? 0;
+  }
+
+  return { bodiesNullified, rowsDeleted };
+}
+
+export async function getClientStats(
+  db: D1Database,
+  clientId: string,
+  window: '1h' | '24h' | '7d' = '24h'
+): Promise<any> {
+  const msMap = {
+    '1h': 3600 * 1000,
+    '24h': 24 * 3600 * 1000,
+    '7d': 7 * 24 * 3600 * 1000,
+  };
+  const durationMs = msMap[window] || msMap['24h'];
+  const cutoff = new Date(Date.now() - durationMs).toISOString();
+
+  const records = (await db.prepare(
+    'SELECT lane, user_lane, classifier, classify_ms, received_at FROM notifications WHERE client_id = ? AND received_at >= ?'
+  )
+    .bind(clientId, cutoff)
+    .all<{ lane: string; user_lane: string | null; classifier: string; classify_ms: number | null; received_at: string }>())
+    .results || [];
+
+  const total = records.length;
+  let nowCount = 0;
+  let laterCount = 0;
+  let muteCount = 0;
+  let overrides = 0;
+  let falseMutes = 0;
+  const latencies: number[] = [];
+  const classifierMix: Record<string, number> = { jev: 0, heuristic: 0, heuristic_fallback: 0, rule: 0 };
+
+  for (const r of records) {
+    if (r.lane === 'now') nowCount++;
+    else if (r.lane === 'later') laterCount++;
+    else if (r.lane === 'mute') muteCount++;
+
+    if (r.user_lane && r.user_lane !== r.lane) {
+      overrides++;
+      if (r.lane === 'mute' && (r.user_lane === 'now' || r.user_lane === 'later')) {
+        falseMutes++;
+      }
+    }
+
+    if (typeof r.classify_ms === 'number') {
+      latencies.push(r.classify_ms);
+    }
+
+    if (classifierMix[r.classifier] !== undefined) {
+      classifierMix[r.classifier]++;
+    } else {
+      classifierMix[r.classifier] = 1;
+    }
+  }
+
+  // Latency percentiles
+  latencies.sort((a, b) => a - b);
+  const p50 = latencies.length > 0 ? latencies[Math.floor(latencies.length * 0.5)] : 0;
+  const p95 = latencies.length > 0 ? latencies[Math.floor(latencies.length * 0.95)] : 0;
+
+  const interruptionsAvoided = total > 0 ? ((laterCount + muteCount) / total) * 100 : 0;
+  const overrideRate = total > 0 ? (overrides / total) * 100 : 0;
+  const fallbackRate = total > 0 ? ((classifierMix.heuristic_fallback || 0) / total) * 100 : 0;
+
+  return {
+    window,
+    total,
+    lanes: {
+      now: nowCount,
+      later: laterCount,
+      mute: muteCount,
+    },
+    interruptions_avoided_pct: Number(interruptionsAvoided.toFixed(1)),
+    override_rate_pct: Number(overrideRate.toFixed(1)),
+    user_corrected_false_mutes: falseMutes,
+    latency_ms: {
+      p50,
+      p95,
+    },
+    classifier_mix: classifierMix,
+    fallback_rate_pct: Number(fallbackRate.toFixed(1)),
+  };
+}
+
+

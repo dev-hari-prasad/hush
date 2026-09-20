@@ -13,11 +13,18 @@ import {
   computeDedupeHash,
   checkDuplicateNotification,
   insertNotificationRecord,
+  getNotifications,
+  getNotificationById,
+  updateNotificationAction,
+  resurfaceSnoozedNotifications,
+  runRetentionCleanup,
+  getClientStats,
 } from './db/queries';
 import { sanitizePayload, isVerificationCode } from './redaction';
 import { classifyWithJev } from './classifiers/jev';
 import { classifyHeuristic } from './classifiers/heuristic';
 import { routeNotification } from './classifiers/router';
+import { generateScenarioNotifications, ScenarioType } from './simulator';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -401,8 +408,155 @@ app.post('/v1/notifications/batch', async (c) => {
 });
 
 // -------------------------------------------------------------
-// Data Wipe Endpoint
+// Notification List & Actions (Phase 3)
+// -------------------------------------------------------------
 
+app.get('/v1/notifications', async (c) => {
+  const clientId = c.get('clientId');
+  const lane = c.req.query('lane');
+  const status = c.req.query('status');
+  const limitStr = c.req.query('limit');
+  const before = c.req.query('before');
+
+  const limit = limitStr ? parseInt(limitStr, 10) : 50;
+
+  const result = await getNotifications(c.env.DB, clientId, {
+    lane,
+    status,
+    limit,
+    before,
+  });
+
+  return c.json(result);
+});
+
+app.post('/v1/notifications/:id/action', async (c) => {
+  const clientId = c.get('clientId');
+  const id = c.req.param('id');
+  let body: {
+    action: 'done' | 'snooze' | 'move' | 'mute_source';
+    lane?: 'now' | 'later' | 'mute';
+    until?: string;
+  };
+
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON payload' }, 400);
+  }
+
+  const existing = await getNotificationById(c.env.DB, clientId, id);
+  if (!existing) {
+    return c.json({ error: 'Notification not found' }, 404);
+  }
+
+  switch (body.action) {
+    case 'done': {
+      const updated = await updateNotificationAction(c.env.DB, clientId, id, { status: 'done' });
+      return c.json({ success: true, notification: updated });
+    }
+
+    case 'snooze': {
+      let until = body.until;
+      if (!until) {
+        // Default snooze: 1 hour from now
+        until = new Date(Date.now() + 3600 * 1000).toISOString();
+      }
+      const updated = await updateNotificationAction(c.env.DB, clientId, id, {
+        status: 'snoozed',
+        snooze_until: until,
+      });
+      return c.json({ success: true, notification: updated });
+    }
+
+    case 'move': {
+      if (!body.lane || !['now', 'later', 'mute'].includes(body.lane)) {
+        return c.json({ error: "Invalid lane. Must be 'now', 'later', or 'mute'." }, 400);
+      }
+      const updated = await updateNotificationAction(c.env.DB, clientId, id, {
+        lane: body.lane,
+        user_lane: body.lane, // Record user feedback correction
+        lane_reason: `user_moved_to_${body.lane}`,
+        status: 'open',
+      });
+      return c.json({ success: true, notification: updated });
+    }
+
+    case 'mute_source': {
+      // Create a rule muting this domain
+      await createClientRule(c.env.DB, clientId, {
+        type: 'domain',
+        pattern: existing.source_domain,
+        action: 'mute',
+        priority: 10,
+        enabled: true,
+      });
+
+      // Move this notification to mute
+      const updated = await updateNotificationAction(c.env.DB, clientId, id, {
+        lane: 'mute',
+        user_lane: 'mute',
+        lane_reason: `muted_source:${existing.source_domain}`,
+      });
+
+      return c.json({ success: true, notification: updated, rule_created: existing.source_domain });
+    }
+
+    default:
+      return c.json({ error: "Invalid action. Supported: 'done', 'snooze', 'move', 'mute_source'" }, 400);
+  }
+});
+
+// -------------------------------------------------------------
+// Stats Endpoint (Phase 3)
+// -------------------------------------------------------------
+app.get('/v1/stats', async (c) => {
+  const clientId = c.get('clientId');
+  const windowQuery = c.req.query('window') as '1h' | '24h' | '7d' | undefined;
+  const window = windowQuery && ['1h', '24h', '7d'].includes(windowQuery) ? windowQuery : '24h';
+
+  const stats = await getClientStats(c.env.DB, clientId, window);
+  return c.json(stats);
+});
+
+// -------------------------------------------------------------
+// Simulator Endpoint (Phase 3)
+// -------------------------------------------------------------
+app.post('/v1/simulate', async (c) => {
+  const clientId = c.get('clientId');
+  let body: { scenario?: ScenarioType; count?: number };
+  try {
+    body = await c.req.json();
+  } catch {
+    body = { scenario: 'workday' };
+  }
+
+  const scenario = body.scenario || 'workday';
+  const count = typeof body.count === 'number' ? Math.min(body.count, 20) : undefined;
+
+  const generated = generateScenarioNotifications(scenario, count);
+  const client = await getOrCreateClient(c.env.DB, clientId);
+  const rules = await getClientRules(c.env.DB, clientId);
+
+  const ingested = [];
+  for (const item of generated) {
+    try {
+      const res = await processNotificationIngest(c, clientId, item, client.settings, rules);
+      ingested.push(res);
+    } catch (err: any) {
+      ingested.push({ error: err.message });
+    }
+  }
+
+  return c.json({
+    scenario,
+    count: ingested.length,
+    notifications: ingested,
+  });
+});
+
+// -------------------------------------------------------------
+// Data Wipe Endpoint
 // -------------------------------------------------------------
 app.delete('/v1/data', async (c) => {
   const clientId = c.get('clientId');
@@ -423,6 +577,18 @@ app.onError((err, c) => {
 export default {
   fetch: app.fetch,
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    // Scheduled cron handler (implemented in Phase 3)
+    console.log(`[Cron] Running scheduled maintenance at ${new Date().toISOString()}`);
+    // 1. Resurface snoozed notifications whose snooze_until has elapsed
+    const resurfaced = await resurfaceSnoozedNotifications(env.DB);
+    if (resurfaced > 0) {
+      console.log(`[Cron] Resurfaced ${resurfaced} snoozed notifications to 'now'`);
+    }
+
+    // 2. Daily retention cleanup
+    const retention = await runRetentionCleanup(env.DB);
+    if (retention.bodiesNullified > 0 || retention.rowsDeleted > 0) {
+      console.log(`[Cron] Retention cleanup: ${retention.bodiesNullified} bodies nullified, ${retention.rowsDeleted} rows deleted`);
+    }
   }
 };
+

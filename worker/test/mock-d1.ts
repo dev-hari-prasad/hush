@@ -94,6 +94,16 @@ class MockD1PreparedStatement {
       return { results: entry ? [entry as T] : [] };
     }
 
+    // SELECT * FROM notifications WHERE id = ? AND client_id = ?
+    if (/SELECT .* FROM notifications WHERE id = \? AND client_id = \?/i.test(q)) {
+      const [id, clientId] = this.bindings;
+      const notif = this.tables.notifications.get(id);
+      if (notif && notif.client_id === clientId) {
+        return { results: [notif as T] };
+      }
+      return { results: [] };
+    }
+
     // SELECT * FROM notifications WHERE client_id = ? AND dedupe_hash = ? AND received_at >= ?
     if (/SELECT .* FROM notifications WHERE client_id = \? AND dedupe_hash = \? AND received_at >= \?/i.test(q)) {
       const [clientId, dedupeHash, cutoff] = this.bindings;
@@ -103,11 +113,50 @@ class MockD1PreparedStatement {
       return { results: match ? [match as T] : [] };
     }
 
-    // SELECT * FROM notifications WHERE client_id = ?
+    // SELECT lane, user_lane, classifier, classify_ms, received_at FROM notifications WHERE client_id = ? AND received_at >= ?
+    if (/SELECT .* FROM notifications WHERE client_id = \? AND received_at >= \?/i.test(q)) {
+      const [clientId, cutoff] = this.bindings;
+      const items = Array.from(this.tables.notifications.values()).filter(
+        (n) => n.client_id === clientId && n.received_at >= cutoff
+      );
+      return { results: items as T[] };
+    }
+
+    // Dynamic SELECT * FROM notifications WHERE ...
     if (/SELECT .* FROM notifications WHERE client_id = \?/i.test(q)) {
       const clientId = this.bindings[0];
-      const items = Array.from(this.tables.notifications.values()).filter((n) => n.client_id === clientId);
+      let items = Array.from(this.tables.notifications.values()).filter((n) => n.client_id === clientId);
+
+      let bindIdx = 1;
+      if (/lane = \?/i.test(q)) {
+        const lane = this.bindings[bindIdx++];
+        items = items.filter((n) => n.lane === lane);
+      }
+      if (/status = \?/i.test(q)) {
+        const status = this.bindings[bindIdx++];
+        items = items.filter((n) => n.status === status);
+      }
+      if (/received_at < \?/i.test(q)) {
+        const before = this.bindings[bindIdx++];
+        items = items.filter((n) => n.received_at < before);
+      }
+
+      items.sort((a, b) => b.received_at.localeCompare(a.received_at));
+
+      if (/LIMIT \?/i.test(q)) {
+        const limit = this.bindings[bindIdx++];
+        if (typeof limit === 'number') {
+          items = items.slice(0, limit);
+        }
+      }
+
       return { results: items as T[] };
+    }
+
+    // SELECT id, settings_json FROM clients
+    if (/SELECT id, settings_json FROM clients/i.test(q)) {
+      const allClients = Array.from(this.tables.clients.values());
+      return { results: allClients as T[] };
     }
 
     return { results: [] };
@@ -226,6 +275,66 @@ class MockD1PreparedStatement {
       return { meta: { changes: 1 } };
     }
 
+    // UPDATE notifications SET status = ?, snooze_until = ?, lane = ?, user_lane = ?, lane_reason = ? WHERE id = ? AND client_id = ?
+    if (/UPDATE\s+notifications\s+SET[\s\S]*status\s*=\s*\?[\s\S]*WHERE\s+id\s*=\s*\?\s+AND\s+client_id\s*=\s*\?/i.test(q)) {
+      const [status, snooze_until, lane, user_lane, lane_reason, id, client_id] = this.bindings;
+      const notif = this.tables.notifications.get(id);
+      if (notif && notif.client_id === client_id) {
+        notif.status = status;
+        notif.snooze_until = snooze_until;
+        notif.lane = lane;
+        notif.user_lane = user_lane;
+        notif.lane_reason = lane_reason;
+        this.tables.notifications.set(id, notif);
+        return { meta: { changes: 1 } };
+      }
+      return { meta: { changes: 0 } };
+    }
+
+    // Resurface snoozed: UPDATE notifications SET status = 'open', lane = 'now', lane_reason = 'snooze_resurfaced', snooze_until = NULL WHERE status = 'snoozed' ...
+    if (/UPDATE notifications[\s\S]*snooze_resurfaced/i.test(q)) {
+      const [now] = this.bindings;
+      let count = 0;
+      for (const [id, notif] of this.tables.notifications.entries()) {
+        if (notif.status === 'snoozed' && notif.snooze_until && notif.snooze_until <= now) {
+          notif.status = 'open';
+          notif.lane = 'now';
+          notif.lane_reason = 'snooze_resurfaced';
+          notif.snooze_until = null;
+          this.tables.notifications.set(id, notif);
+          count++;
+        }
+      }
+      return { meta: { changes: count } };
+    }
+
+    // Retention: UPDATE notifications SET body = NULL WHERE client_id = ? AND received_at < ? AND body IS NOT NULL
+    if (/UPDATE notifications SET body = NULL/i.test(q)) {
+      const [clientId, cutoff] = this.bindings;
+      let count = 0;
+      for (const [id, notif] of this.tables.notifications.entries()) {
+        if (notif.client_id === clientId && notif.received_at < cutoff && notif.body !== null) {
+          notif.body = null;
+          this.tables.notifications.set(id, notif);
+          count++;
+        }
+      }
+      return { meta: { changes: count } };
+    }
+
+    // Retention purge: DELETE FROM notifications WHERE received_at < ?
+    if (/DELETE FROM notifications WHERE received_at < \?/i.test(q)) {
+      const [cutoff] = this.bindings;
+      let count = 0;
+      for (const [id, notif] of this.tables.notifications.entries()) {
+        if (notif.received_at < cutoff) {
+          this.tables.notifications.delete(id);
+          count++;
+        }
+      }
+      return { meta: { changes: count } };
+    }
+
     // DELETE FROM clients WHERE id = ?
     if (/DELETE FROM clients WHERE id = \?/i.test(q)) {
       const [clientId] = this.bindings;
@@ -257,3 +366,4 @@ class MockD1PreparedStatement {
     return { meta: { changes: 0 } };
   }
 }
+
