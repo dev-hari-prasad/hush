@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hush: AI Notification Triage</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <!-- Header -->
+  <header class="app-header">
+    <div class="brand">
+      <svg class="brand-icon" viewBox="0 0 128 128" fill="none">
+        <rect width="128" height="128" rx="28" fill="#14161d"/>
+        <path d="M64 26 C50 26 40 37 40 52 L40 70 L32 78 L32 84 L96 84 L96 78 L88 70 L88 52 C88 37 78 26 64 26 Z" fill="#f6821f"/>
+        <path d="M54 88 C55 94 59 98 64 98 C69 98 73 94 74 88 Z" fill="#fa6400"/>
+        <circle cx="86" cy="36" r="7" fill="#22c55e"/>
+      </svg>
+      <span class="brand-title">Hush</span>
+      <span class="brand-badge">AI Triage</span>
+    </div>
+    <div class="header-actions">
+      <div id="connection-status" class="status-dot" title="Worker Status: Checking..."></div>
+      <button id="btn-quick-sim" class="btn-action" title="Inject simulated test notifications">
+        <span>⚡ Simulate</span>
+      </button>
+      <button id="btn-open-options" class="btn-icon" title="Settings & BYOK Keys">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Segmented Pill Tabs (Cloudflare style) -->
+  <div class="nav-tabs-wrapper">
+    <nav class="nav-tabs">
+      <button class="tab-btn active" data-tab="now">
+        Now <span id="badge-now" class="tab-badge">0</span>
+      </button>
+      <button class="tab-btn" data-tab="later">
+        Later <span id="badge-later" class="tab-badge">0</span>
+      </button>
+      <button class="tab-btn" data-tab="mute">
+        Muted <span id="badge-mute" class="tab-badge">0</span>
+      </button>
+      <button class="tab-btn" data-tab="chat">
+        Ask AI
+      </button>
+      <button class="tab-btn" data-tab="digest">
+        Digest
+      </button>
+      <button class="tab-btn" data-tab="settings">
+        Config
+      </button>
+    </nav>
+  </div>
+
+  <!-- Main Content Views -->
+  <main class="main-content">
+    <!-- NOW Lane -->
+    <div id="pane-now" class="tab-pane active">
+      <div id="list-now" class="notif-list"></div>
+    </div>
+
+    <!-- LATER Lane -->
+    <div id="pane-later" class="tab-pane">
+      <div id="list-later" class="notif-list"></div>
+    </div>
+
+    <!-- MUTED Lane -->
+    <div id="pane-mute" class="tab-pane">
+      <div id="list-mute" class="notif-list"></div>
+    </div>
+
+    <!-- ASK AI (Conversational Assistant) -->
+    <div id="pane-chat" class="tab-pane">
+      <div class="chat-container">
+        <div id="chat-history" class="chat-history">
+          <div class="chat-bubble assistant">
+            Hello! I am your Hush Assistant. Ask me anything about your incoming notifications (e.g. <em>"Did any deployment alerts fire?"</em> or <em>"Summarize messages from Alex"</em>).
+          </div>
+        </div>
+        <form id="chat-form" class="chat-input-bar">
+          <input type="text" id="chat-input" class="chat-input" placeholder="Ask about your notifications..." autocomplete="off" required>
+          <button type="submit" class="btn-action btn-primary">Send</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- DIGEST View -->
+    <div id="pane-digest" class="tab-pane">
+      <div class="digest-box">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <h3 class="digest-title">Executive Notification Briefing</h3>
+          <button id="btn-run-digest" class="btn-action btn-primary">⚡ Generate</button>
+        </div>
+        <div id="digest-content">
+          <p style="color: var(--text-muted); font-size: 12px;">Click "Generate" to batch summarize all pending notifications in your Later lane.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SETTINGS & BYOK View -->
+    <div id="pane-settings" class="tab-pane">
+      <div class="settings-section">
+        <h4 class="section-title">Backend Connection</h4>
+        <div class="form-group">
+          <label class="form-label">Worker API URL</label>
+          <input type="text" id="cfg-worker-url" class="form-input" value="http://localhost:8787">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Client ID (Anonymous UUID)</label>
+          <div style="display: flex; gap: 6px;">
+            <input type="text" id="cfg-client-id" class="form-input" readonly style="color: var(--text-dim);">
+            <button id="btn-copy-client-id" class="btn-action">Copy</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h4 class="section-title">Bring Your Own Key (BYOK)</h4>
+        <div class="form-group">
+          <label class="form-label">Jev Endpoint (TypeSafe AI)</label>
+          <input type="text" id="cfg-jev-endpoint" class="form-input" placeholder="https://api.typesafe.ai/v1/systemone">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Jev API Key</label>
+          <input type="password" id="cfg-jev-key" class="form-input" placeholder="Enter Jev API Key...">
+        </div>
+        <div class="form-group">
+          <label class="form-label">LLM Base URL (Cloudflare AI / OpenAI)</label>
+          <input type="text" id="cfg-llm-base-url" class="form-input" placeholder="https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1">
+        </div>
+        <div class="form-group">
+          <label class="form-label">LLM API Key</label>
+          <input type="password" id="cfg-llm-key" class="form-input" placeholder="Enter Cloudflare / OpenAI token...">
+        </div>
+        <div class="form-group">
+          <label class="form-label">LLM Model</label>
+          <input type="text" id="cfg-llm-model" class="form-input" placeholder="@cf/meta/llama-3.1-8b-instruct">
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h4 class="section-title">Allowlisted Sites</h4>
+        <p style="font-size: 11px; color: var(--text-muted);">Hush only intercepts notifications on sites you explicitly add:</p>
+        <div style="display: flex; gap: 6px;">
+          <input type="text" id="input-new-site" class="form-input" placeholder="e.g. github.com, slack.com">
+          <button id="btn-add-site" class="btn-action btn-primary">+ Add</button>
+        </div>
+        <div id="allowed-sites-list" style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;"></div>
+      </div>
+
+      <div class="settings-section">
+        <button id="btn-save-settings" class="btn-action btn-primary" style="justify-content: center; padding: 8px;">Save Settings</button>
+        <button id="btn-wipe-data" class="btn-action" style="justify-content: center; color: var(--accent-red); margin-top: 4px;">Delete All My Data</button>
+      </div>
+    </div>
+  </main>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

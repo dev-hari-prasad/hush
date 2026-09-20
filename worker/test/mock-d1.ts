@@ -321,6 +321,14 @@ class MockD1PreparedStatement {
       }
     }
 
+    // INSERT INTO eval_runs
+    if (/INSERT INTO eval_runs/i.test(q)) {
+      const [id, client_id, created_at, classifier, n, accuracy, false_mute_rate, results_json] = this.bindings;
+      this.tables.eval_runs.set(id, { id, client_id, created_at, classifier, n, accuracy, false_mute_rate, results_json });
+      return { meta: { changes: 1 } };
+    }
+
+
     // UPDATE notifications SET status = ?, snooze_until = ?, lane = ?, user_lane = ?, lane_reason = ? WHERE id = ? AND client_id = ?
     if (/UPDATE\s+notifications\s+SET[\s\S]*status\s*=\s*\?[\s\S]*WHERE\s+id\s*=\s*\?\s+AND\s+client_id\s*=\s*\?/i.test(q)) {
       const [status, snooze_until, lane, user_lane, lane_reason, id, client_id] = this.bindings;

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f6821f"/>
+      <stop offset="100%" stop-color="#d95400"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="#0c0d10"/>
+  <rect x="2" y="2" width="124" height="124" rx="26" fill="none" stroke="#f6821f" stroke-opacity="0.3" stroke-width="2"/>
+  <!-- Bell / Shield Triage Icon -->
+  <path d="M64 26 C50 26 40 37 40 52 L40 70 L32 78 L32 84 L96 84 L96 78 L88 70 L88 52 C88 37 78 26 64 26 Z" fill="url(#grad)"/>
+  <path d="M54 88 C55 94 59 98 64 98 C69 98 73 94 74 88 Z" fill="#f6821f"/>
+  <!-- Radio pulse dot -->
+  <circle cx="86" cy="36" r="7" fill="#22c55e"/>
+</svg>

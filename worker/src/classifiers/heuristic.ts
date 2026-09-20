@@ -115,9 +115,10 @@ export function classifyHeuristic(
     };
   }
 
-  // Imminent calendar / meeting
+  // Imminent calendar / meeting / delivery
   const calendarKeywords = [
     'meeting starts in',
+    'meeting in',
     'starts in 5 min',
     'starts in 10 min',
     'join now',
@@ -125,11 +126,15 @@ export function classifyHeuristic(
     'google meet is starting',
     'zoom meeting starting',
     'huddle started',
+    'courier arriving',
+    'arriving in',
+    'food has arrived',
+    'dasher has arrived',
   ];
   if (calendarKeywords.some((kw) => combined.includes(kw))) {
     return {
       lane: 'now',
-      lane_reason: 'heuristic:imminent_meeting',
+      lane_reason: 'heuristic:imminent_meeting_or_delivery',
       urgency: 4,
       confidence: 0.92,
       p_now: 0.92,
@@ -160,11 +165,15 @@ export function classifyHeuristic(
     'weekly digest',
     'liked your post',
     'liked your photo',
+    'liked your tweet',
+    'liked your comment',
     'followed you',
     'retweeted',
-    'check out who viewed your profile',
+    'who viewed your',
     'new recommendations for you',
     'trending today',
+    'trending in',
+    'top products launched',
   ];
   if (promoKeywords.some((kw) => combined.includes(kw))) {
     return {
@@ -187,7 +196,49 @@ export function classifyHeuristic(
     };
   }
 
-  // Direct mention or message from a person
+  // General batchable update (GitHub PR reviews, CI passing, Jira/Linear updates, routine surveys)
+  const devWorkKeywords = [
+    'pull request',
+    'pr #',
+    'review requested',
+    'assigned you',
+    'assigned to',
+    'commented on',
+    'pushed',
+    'workflow run',
+    'jira',
+    'linear issue',
+    'build succeeded',
+    'pipeline passed',
+    'survey reminder',
+    'standup bot',
+    'dependabot',
+    'sentry:',
+    'docker hub',
+    'ddos attack mitigated',
+  ];
+  if (devWorkKeywords.some((kw) => combined.includes(kw))) {
+    return {
+      lane: 'later',
+      lane_reason: 'heuristic:developer_workflow_update',
+      urgency: 2,
+      confidence: 0.85,
+      p_now: 0.15,
+      p_later: 0.8,
+      p_mute: 0.05,
+      p_time_sensitive: 0.3,
+      p_needs_reply: 0.25,
+      p_from_person: 0.6,
+      p_promotional: 0.0,
+      p_suspicious: 0.0,
+      uncertain: false,
+      suspicious: false,
+      classifier: classifierType,
+      classify_ms: Math.round(performance.now() - start),
+    };
+  }
+
+  // Direct mention or direct chat message from a person
   const isDirectMessage =
     Boolean(sender) ||
     combined.includes('mentioned you') ||
@@ -215,29 +266,6 @@ export function classifyHeuristic(
       p_needs_reply: 0.75,
       p_from_person: 0.85,
       p_promotional: 0.05,
-      p_suspicious: 0.0,
-      uncertain: false,
-      suspicious: false,
-      classifier: classifierType,
-      classify_ms: Math.round(performance.now() - start),
-    };
-  }
-
-  // General batchable update (GitHub PR reviews, CI passing, Jira ticket updates)
-  const devWorkKeywords = ['pull request', 'pr #', 'assigned you', 'jira', 'linear issue', 'build succeeded', 'commit'];
-  if (devWorkKeywords.some((kw) => combined.includes(kw))) {
-    return {
-      lane: 'later',
-      lane_reason: 'heuristic:developer_workflow_update',
-      urgency: 2,
-      confidence: 0.8,
-      p_now: 0.2,
-      p_later: 0.75,
-      p_mute: 0.05,
-      p_time_sensitive: 0.4,
-      p_needs_reply: 0.3,
-      p_from_person: 0.6,
-      p_promotional: 0.0,
       p_suspicious: 0.0,
       uncertain: false,
       suspicious: false,

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Hush - Settings & Preferences</title>
+  <link rel="stylesheet" href="../popup/popup.css">
+  <style>
+    body {
+      width: 100%;
+      max-width: 720px;
+      margin: 0 auto;
+      min-height: 100vh;
+      max-height: none;
+      padding: 24px 16px;
+    }
+  </style>
+</head>
+<body>
+  <header class="app-header" style="border-radius: var(--radius-md); margin-bottom: 20px;">
+    <div class="brand">
+      <svg class="brand-icon" viewBox="0 0 128 128" fill="none">
+        <rect width="128" height="128" rx="28" fill="#14161d"/>
+        <path d="M64 26 C50 26 40 37 40 52 L40 70 L32 78 L32 84 L96 84 L96 78 L88 70 L88 52 C88 37 78 26 64 26 Z" fill="#f6821f"/>
+        <path d="M54 88 C55 94 59 98 64 98 C69 98 73 94 74 88 Z" fill="#fa6400"/>
+        <circle cx="86" cy="36" r="7" fill="#22c55e"/>
+      </svg>
+      <span class="brand-title">Hush</span>
+      <span class="brand-badge">Settings & Triage Policies</span>
+    </div>
+  </header>
+
+  <div class="settings-section" style="margin-bottom: 16px;">
+    <h4 class="section-title">Privacy & Consent</h4>
+    <p style="font-size: 12px; color: var(--text-muted); line-height: 1.5;">
+      Hush intercepts web notifications on allowlisted sites, redacts sensitive PII (emails, phone numbers, long digit sequences, URL queries) directly on your machine, and routes them through TypeSafe AI's Jev model or your local deterministic heuristics. Verification codes (OTP) are instantly routed to <strong>Now</strong> and are never stored.
+    </p>
+  </div>
+
+  <div class="settings-section" style="margin-bottom: 16px;">
+    <h4 class="section-title">Bring Your Own Key (BYOK)</h4>
+    <div class="form-group">
+      <label class="form-label">TypeSafe AI (Jev) Endpoint</label>
+      <input type="text" id="opt-jev-endpoint" class="form-input" placeholder="https://api.typesafe.ai/v1/systemone">
+    </div>
+    <div class="form-group">
+      <label class="form-label">TypeSafe AI (Jev) API Key</label>
+      <input type="password" id="opt-jev-key" class="form-input" placeholder="Enter Jev key...">
+    </div>
+    <div class="form-group">
+      <label class="form-label">OpenAI-Compatible LLM Base URL (Cloudflare Workers AI Recommended)</label>
+      <input type="text" id="opt-llm-base-url" class="form-input" placeholder="https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1">
+    </div>
+    <div class="form-group">
+      <label class="form-label">OpenAI-Compatible LLM API Key</label>
+      <input type="password" id="opt-llm-key" class="form-input" placeholder="Enter Cloudflare / OpenAI token...">
+    </div>
+    <div class="form-group">
+      <label class="form-label">LLM Model</label>
+      <input type="text" id="opt-llm-model" class="form-input" placeholder="@cf/meta/llama-3.1-8b-instruct">
+    </div>
+  </div>
+
+  <div class="settings-section" style="margin-bottom: 16px;">
+    <h4 class="section-title">Triage Thresholds</h4>
+    <div class="form-group">
+      <label class="form-label">Now Interrupt Threshold: <span id="val-now-threshold" style="color: var(--accent-orange);">0.6</span></label>
+      <input type="range" id="opt-now-threshold" min="0.1" max="0.9" step="0.05" value="0.6" style="accent-color: var(--accent-orange);">
+      <small style="color: var(--text-dim); font-size: 11px;">Higher values prevent interruptions unless confidence is extremely high.</small>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Mute Threshold: <span id="val-mute-threshold" style="color: var(--accent-blue);">0.8</span></label>
+      <input type="range" id="opt-mute-threshold" min="0.5" max="0.95" step="0.05" value="0.8" style="accent-color: var(--accent-blue);">
+      <small style="color: var(--text-dim); font-size: 11px;">Muting has high stakes: notifications are only muted when confidence exceeds this threshold.</small>
+    </div>
+  </div>
+
+  <div class="settings-section">
+    <button id="opt-save-btn" class="btn-action btn-primary" style="padding: 10px; justify-content: center;">Save Preferences</button>
+  </div>
+
+  <script type="module" src="options.js"></script>
+</body>
+</html>
